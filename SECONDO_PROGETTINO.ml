@@ -1,4 +1,4 @@
-(*INTERPRETE IN OCAMEL GESUELE LUIGI MATRICOLA:562376*)
+(*INTERPRETE IN OCAMEL GESUELE LUIGI MATRICOLA:000000*)
 (*PARTE OBBLIGATORIA (CON SCOPING STATICO)*)
 (*Sintassi astratta*)
 (*Definisco cosa è un identificatore*)
@@ -35,23 +35,28 @@ Let of ide * exp * exp |
 Fun of ide * exp |
 Apply of exp * exp | 
 Letrec of ide * exp * exp |
+Concat of exp * exp |
 MyDict of dict | (*Definisco il tipo dizionario*)
 Clear of exp | (*Definisco il tipo di Clear*)
 Get of ide * exp |(*Definisco il tipo di Get*)
 Remove of exp * ide | (*Definisco il tipo di Remove*)
 ApplyOver of exp * exp |
-SetElem of ide * exp * exp(*Definisco il tipo di ApplyOver*)
+SetElem of ide * exp * exp |(*Definisco il tipo di ApplyOver*)
+(* PARTE FACOLTATIVA: OPERATORE RT_EVAL *)
+Rt_eval of exp
 and dict = Empty | Item of (ide * exp) * dict;; (*Specifico il tipo dict (la grammatica)*)
 
 (*CREAZIONE DELL'AMBIENTE POLIMORFO*)
 type 't env = ide -> 't;;
 
 (*DEFINIZIONE DEI TIPI ESPRIMIBILI NEL MIO LINGUAGGIO*)
-type evT = Bool of bool | Int of int | Den of string | String of string | Unbound | Funval of efun | RecFunval of ide * efun |
+type evT = Bool of bool | Int of int | Den of string | String of string |
+Unbound | Funval of efun | RecFunval of ide * efun | 
+FunvalD of efunD | RecFunvalD of ide * efunD | (*Tipo esprimibile per funzione e funzione ricorsiva per dynamic scope *)
 DictVal of edict (*Tipo esprimibile per il mio dizionario *) 
 and efun = ide * exp * evT env 
-and edict = Vuoto | Elem of (ide * evT) * edict;; (*Grammatica del tipo esprimibile del dizionario*)
-
+and edict = Vuoto | Elem of (ide * evT) * edict (*Grammatica del tipo esprimibile del dizionario*)
+and efunD = ide * exp;; (*Estendo il evT per le funzioni con la valutazione con regole di scoping dinamico*)
 (*DEFINIZIONE DI AMBIENTE VUOTO*)
 let emptyenv = fun x -> Unbound;; 
 (*FUNZIONE CHE CREA UNA NUOVA ASSOCIAZIONE NELL'AMBIENTE*)
@@ -64,7 +69,7 @@ let bind (r : 't env) (i : ide) (v : 't) = fun x -> if (x = i) then v else apply
 
 
 (*RUN TIME SUPPORT*)
-(*FUNZIONE CHE MI CONTROLLA I TIPI*)
+(*FUNZIONE CHE MI CONTROLLA I TIPI (ausilio per il typechecking dinamico)*)
 let typecheck (s : string) (e : evT) : bool =
     match s with 
         "int" -> (match e with  
@@ -76,9 +81,6 @@ let typecheck (s : string) (e : evT) : bool =
         "bool" -> (match e with
             Bool(_) -> true |
             (_) -> false) |
-        (*"dizionario" -> (match e with
-            DictVal(_) -> true |
-            (_) -> false) |*)
         _ -> failwith("Errore, tipo non valido");;
 
 (*FUNZIONI AUSILIARIE DELLE OPERAZIONI DI BASE*)
@@ -216,15 +218,21 @@ let escorr x y = if (typecheck "bool" x && typecheck "bool" y) then
                         (Bool(a),Bool(b)) -> Bool(not((a&&b) || (not(a)&&not(b)))) |
                         (_,_) -> failwith("Match sbagliato"))
               else failwith("Errore di tipo");;
+(*Concatenazione stringhe *)
+let concatena x y = if (typecheck "string" x && typecheck "string" y) then 
+                        (match (x,y) with 
+                            (String(x),String(y)) -> String(x^y) |
+                            (_,_) -> failwith("Match sbagliato"))
+                    else failwith("Errore di tipo");; 
 (*Alcuni metodi ausiliari per le estensioni del linguaggio didattico *)
-(*Metodo che controlla se un id è già presente nel dizionario*)
+(*Metodo che controlla se un id (chiave) è già presente nel dizionario*)
 let rec check (i:ide) (d:dict) : bool =
         (
             match d with
                 Empty -> true |
                 Item((id,_),dd) -> if id = i then false else check i dd 
         );;
-(*Metodo che cerca un valore associato a un id nel dizionario e lo restituisce*)
+(*Metodo che cerca un valore associato a un id (chiave) nel dizionario e lo restituisce*)
 let rec cerca (i:ide) (el:evT): evT =  
             (match el with
                   DictVal(Vuoto) -> Unbound |
@@ -244,6 +252,8 @@ let rec setA (i:ide) (v:evT) (d1:edict) : edict =
             Vuoto -> Elem((i,v),d1) |(*Se arrivo qui significa che l'elemento non è già presente, per cui lo aggiungo in testa*)
             Elem((id,el),dd) -> if i = id then Elem((id,v),dd) else Elem((id,el),setA i v dd)   
         );;
+(*Metodo ausiliare che esegue la valutazione di un exp con la regola di scoping dinamico (PARTE OPZIONALE)*)
+
 (*CREAZIONE DELL' INTERPRETE*)
 let rec eval (x:exp) (r: evT env) : evT = match x with
     EInt n -> Int n |
@@ -278,7 +288,7 @@ let rec eval (x:exp) (r: evT env) : evT = match x with
     Fun (nomePar,corpoFun) -> Funval (nomePar,corpoFun,r)|
     Apply (ambFunDich,valParam) ->
 			let chiusura = (eval ambFunDich r) in
-				(match chiusura with(* EvItem((id,v),rest) ->let v1 = eval v r in eval fbody (bind ambDich id v1*)
+				(match chiusura with
 				Funval (paramName,corpFun,ambDich) -> 
 					eval corpFun (bind ambDich paramName (eval valParam r))
 				|RecFunval(nomeFun, (paramName, corpoFun, ambDich)) -> 
@@ -292,6 +302,7 @@ let rec eval (x:exp) (r: evT env) : evT = match x with
            	Fun(nomePar, corp) -> let r1 = (bind r nome (RecFunval(nome, (nomePar, corp, r)))) in
                   			                eval corpoFun r1
             | _ -> failwith("Definizione che non e' una funzione")) |
+    Concat(s1,s2) -> concatena (eval s1 r) (eval s2 r)|
     (*Costrutti aggiunti al linguaggio didattico funzionale*)
     (*Valutazione di un dizionario*)
     MyDict(d) -> DictVal(evalDict d r) |
@@ -318,7 +329,8 @@ let rec eval (x:exp) (r: evT env) : evT = match x with
                             let v2 = eval e r in
                                 match v1 with
                                 DictVal(a) -> DictVal(setA i v2 a) |
-                                _ -> failwith("Non e' un dizionario") )
+                                _ -> failwith("Non e' un dizionario") ) |
+    Rt_eval(e) -> eval_dynamic e r (*Costrutto per scoping dinamico - Parte opzionale*)
 (*Metodo che valuta il dizionario (dict) e restituisce un dizionario valutato (edict)*)
 and evalDict (di:dict) (r:evT env) : edict = 
         (match di with
@@ -328,7 +340,7 @@ and evalDict (di:dict) (r:evT env) : edict =
         )
 (*Metodo che permette l'applicazione di una funzione su tutto un dizionario e restituisce il dizionario valutato aggiornato*)
 and applyO (f:evT) (h:edict) : edict =
-            match f,h with
+            (match f,h with
             _,Vuoto -> Vuoto
             |(Funval(par,body,amb),Elem((id,v),rest)) -> 
                 Elem((id,(eval body (bind amb par v))),(applyO f rest))
@@ -337,13 +349,109 @@ and applyO (f:evT) (h:edict) : edict =
                     let finamb = bind newamb par v in
                         let res = eval body finamb in
                             Elem((id,res),(applyO f rest))
-            | _ -> failwith("Non e' una funzione");;
+            | _ -> failwith("Non e' una funzione"))
+(*Versione con scoping dinamico del metodo sopra 'applyO' *)
+and applyOD (f:evT) (h:edict) (r:evT env) : edict = 
+            (match f,h with
+            _,Vuoto -> Vuoto
+            |(FunvalD(par,body),Elem((id,v),rest)) -> 
+                Elem((id,(eval_dynamic body (bind r par v))),(applyOD f rest r))
+            |(RecFunvalD(funName,(par,body)),Elem((id,v),rest)) -> 
+                let newamb = bind r funName f in
+                    let finamb = bind newamb par v in
+                        let res = eval_dynamic body finamb in
+                            Elem((id,res),(applyOD f rest r))
+            | _ -> failwith("Non e' una funzione"))
+(*Versione con scoping dinamico del metodo sopra 'evalDict' *)
+and evalDictD (di:dict) (r:evT env) : edict = 
+        (match di with
+            Empty -> Vuoto |
+            Item((id,ex),dd) -> if (check id dd) then Elem((id,eval_dynamic ex r),evalDict dd r) 
+                                else evalDict dd r 
+        )
+(*Metodo ausiliario che interpreta un espressione exp sempre nello stesso ambiente r 
+(e quindi che segue le regole del dynamic scoping) *)
+and eval_dynamic (e:exp) (r:evT env) : evT = match e with
+    EInt n -> Int n |
+    EBool n -> Bool n |
+    EString n -> String n |
+    Den n -> applyenv r n |
+    Addizione (n,m) -> add(eval_dynamic n r)(eval_dynamic m r) |
+    Sottrazione (n,m) -> sott(eval_dynamic n r)(eval_dynamic m r)|
+    Moltiplicazione (n,m) -> molt(eval_dynamic n r)(eval_dynamic m r)|
+    Divisione (n,m) -> div(eval_dynamic n r)(eval_dynamic m r)|
+    Maggiore (n,m) -> magg(eval_dynamic n r)(eval_dynamic m r)|
+    Minore (n,m) -> minn(eval_dynamic n r)(eval_dynamic m r)|
+    MinoreUg (n,m) -> minu(eval_dynamic n r)(eval_dynamic m r)|
+    MaggioreUg (n,m) -> maggu(eval_dynamic n r)(eval_dynamic m r)|
+    Equivalente (n,m) -> equiv(eval_dynamic n r)(eval_dynamic m r)|
+    Cubo n -> cub (eval_dynamic n r)|
+    Quadrato n -> quad (eval_dynamic n r)|
+    Esp (n,m) -> espon(eval_dynamic n r)(eval_dynamic m r)|
+    Zero n -> iszero (eval_dynamic n r)|
+    Meno n -> meno (eval_dynamic n r)|
+    Assoluto n -> val_abs (eval_dynamic n r) |
+    Not n -> nooh (eval_dynamic n r)|
+    And (n,m) -> aand(eval_dynamic n r)(eval_dynamic m r)|
+    Or (n,m) -> oooh(eval_dynamic n r)(eval_dynamic m r)|
+    Xor (n,m) -> escorr(eval_dynamic n r)(eval_dynamic m r)|
+    Nand (n,m) -> nand(eval_dynamic n r)(eval_dynamic m r)|
+    Impl (n,m) -> impl(eval_dynamic n r)(eval_dynamic m r)|
+    IfThenElse (cond,thn,els) -> let c = eval_dynamic cond r in
+                                    if c=Bool(true) then eval_dynamic thn r else eval_dynamic els r |
+        
+    Let (ide,e1,e2) -> eval_dynamic e2 (bind r ide (eval_dynamic e1 r))|
+    (*Fondamentalmente agisco da qui con le modifiche vere e proprie:*)
+    (*Quando incontro un exp di tipo "Fun" utilizzo il nuovo evT senza ambiente locale di definizione *)
+    Fun (nomePar,corpoFun) -> FunvalD (nomePar,corpoFun)|
+    Apply (ambFunDich,valParam) ->
+			let chiusura = (eval_dynamic ambFunDich r) in
+				(match chiusura with
+                (*Anche qui utilizzo i nuovi costrutti senza ambiente di definizione della funzione, sia per quelle ricorsive che non*)
+				FunvalD (paramName,corpFun) -> 
+					eval_dynamic corpFun (bind r paramName (eval_dynamic valParam r))
+				|RecFunvalD(nomeFun, (paramName, corpoFun)) -> 
+					let actVal = (eval_dynamic valParam r) in 
+						let ambFinale = (bind r nomeFun chiusura) in
+							let ambAct = (bind ambFinale paramName actVal) in
+								eval_dynamic corpoFun ambAct
+				| _ -> failwith("Definizione che non e' una funzione"))| 
+    Letrec(nome, defFun, corpoFun) -> 
+        (match defFun with
+           	Fun(nomePar, corp) -> let r1 = (bind r nome (RecFunvalD(nome, (nomePar, corp)))) in
+                  			                eval_dynamic corpoFun r1
+            | _ -> failwith("Definizione che non e' una funzione")) |
+    Concat(s1,s2) -> concatena (eval_dynamic s1 r) (eval_dynamic s2 r)|
+    (*Anche qui modifico in modo che il dizionario venga valutato con le regole di dynamic scope*)
+    MyDict(d) -> DictVal(evalDictD d r) |
+    Clear (d) -> (match (eval_dynamic d r) with 
+                    DictVal(a) -> DictVal(Vuoto)|
+                    _ -> failwith("Non e' un dizionario")
+    ) |
+    Get (i,d) -> cerca i (eval_dynamic d r)|
+    Remove(d,i) -> (let v = eval_dynamic d r in 
+            match v with 
+            DictVal(a) -> DictVal(rimuovi i a)|
+            _ -> failwith("Non e' un dizionario"))|
+    (*Infine modifico anche l'applyOver per permettere l'applicazione di funzioni con scoping dinamico*)
+    ApplyOver(f,d) -> let chiusura = (eval_dynamic f r) in 
+                        (match (eval_dynamic d r) with 
+                            DictVal(a) -> DictVal(applyOD chiusura a r) |
+                            _ -> failwith("Non e' un dizionario"))
+    |
+    SetElem(i,e,d) -> (let v1 = (eval_dynamic d r) in
+                            let v2 = eval_dynamic e r in
+                                match v1 with
+                                DictVal(a) -> DictVal(setA i v2 a) |
+                                _ -> failwith("Non e' un dizionario") ) |
+    Rt_eval(e) -> eval_dynamic e r ;;
     
 
 
 (*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~TEST CASES~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*)
 
-(*Test dell'IF THEN ELSE (con addizione,sottrazione, maggioreuguale, quadrato, cubo, let funzionanti)*)
+(*Test dell'IF THEN ELSE (con addizione,sottrazione, maggioreuguale, quadrato, cubo, let)*)
+(*001*)
 let espr1 = 
 IfThenElse(
     MaggioreUg(
@@ -364,6 +472,7 @@ IfThenElse(
     )
 );;
 eval espr1 emptyenv;;
+(*002*)
 let espr2 = 
 IfThenElse(
     MaggioreUg(
@@ -384,7 +493,9 @@ IfThenElse(
     )
 );;
 eval espr2 emptyenv;;
-(* Test dei booleani (funzionanti)*)
+
+(* Test dei booleani*)
+(*003*)
 let espr3 = 
 IfThenElse(
     Impl(
@@ -410,6 +521,7 @@ IfThenElse(
 );;
 eval espr3 emptyenv;;
 
+(*004*)
 let espr4 = 
 IfThenElse(
     Impl(
@@ -435,8 +547,9 @@ IfThenElse(
 );;
 eval espr4 emptyenv;;
 
-(*Test FUNZIONI (normali e ricorsive) funzionanti*)
+(*Test FUNZIONI (normali e ricorsive)*)
 (*Funzione che dato un parametro mi restituisce il suo doppio diviso per 4 (in intero)*)
+(*005*)
 let corpoFunzioneAnon =
 Fun(
     "x",
@@ -455,6 +568,7 @@ Apply(
 );;
 eval chiamataFunzAnon emptyenv;;
 (*Test altre operazioni *)
+(*006*)
 let espr5 =
 IfThenElse(
     Zero(
@@ -491,7 +605,19 @@ IfThenElse(
     )
 );;
 eval espr5 emptyenv;;
+(*Test concatenazione stringhe *)
+(*007*)
+let espr6 = 
+    Concat(
+        Concat(
+            EString "Buongiorno",
+            EString ", "
+        ),
+        EString "come va?"
+    );;
+eval espr6 emptyenv;;
 (*Funzione del fattoriale, dato un numero restituisce il suo fattoriale*)
+(*008*)
 let corpF =
 Fun(
     "x",
@@ -525,7 +651,7 @@ Letrec(
 );;
 eval fattoriale emptyenv;;
 (*Fattoriale di un negativo (Errata)*)
-
+(*009*)
 let fattoriale_err =
 Letrec(
     "fact",
@@ -537,6 +663,7 @@ Letrec(
 );;
 eval fattoriale_err emptyenv;;
 (*Miglioro la funzione fattoriale *)
+(*010*)
 let corpF =
 Fun(
     "x",
@@ -580,7 +707,7 @@ eval fattoriale_corr emptyenv;;
     in 
     let g y = y + val 
 in g;; *)
-
+(*011*)
 let funzRetFunz = 
 Let(
     "f",
@@ -612,13 +739,15 @@ Let(
 );;
 
 eval funzRetFunz emptyenv;;
-(* TEST SUI DIZIONARI *)
+(* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ TEST SUI DIZIONARI ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ *)
 (*Creazione dizionario vuoto *)
+(*012*)
 let dict0 =
     MyDict(Empty)
 ;;
 eval dict0 emptyenv;;
 (*Creazione dizionario con valori *)
+(*013*)
 let dict1 =
     MyDict(
         Item(
@@ -638,13 +767,14 @@ let dict1 =
 eval dict1 emptyenv;;
 
 (*Accesso a un elemento del dizionario *)
+(*014*)
 let v1 = 
 Get(
     "name",
     dict1
 );;
 eval v1 emptyenv;;
-
+(*015*)
 let v2 = 
 Get(
     "matricola",
@@ -653,6 +783,7 @@ Get(
 eval v2 emptyenv;;
 (*Operazioni (dizionari sono immutabili)*)
 (*Aggiunta elemento *)
+(*016*)
 let dict1 = 
 SetElem(
     "eta",
@@ -661,6 +792,7 @@ SetElem(
 );;
 eval dict1 emptyenv;;
 (*Modifica elemento*)
+(*017*)
 let dict1 = 
 SetElem(
     "eta",
@@ -670,19 +802,22 @@ SetElem(
 eval dict1 emptyenv;;
 
 (*Rimozione elemento*)
-let dict4 = 
+(*018*)
+let dict2 = 
 Remove(
     dict1,
     "name"
 );;
-eval dict4 emptyenv;;
+eval dict2 emptyenv;;
 (*Svuotamento dizionario*)
+(*019*)
 let dict3 = 
 Clear(
     dict1
 );;
 eval dict3 emptyenv;;
 (*Applicazione fun x -> x+1 su dizionario*)
+(*020*)
 eval (
     ApplyOver(
         Fun(
@@ -692,11 +827,16 @@ eval (
                 EInt 1
             )
         ),
-        dict4
+        dict2
     ))
 emptyenv;;
-(*Test per controllare che i dizionari siano immutabili*)
-(*Con il primo esempio dimostro che il tentativo di eliminare l'elemento "name" direttamente in d, in cui è definito il dizionario, fallisce*)
+(*Primo test sull'immutabilità dei dizionari*)
+(*021*)
+eval dict2 emptyenv;;
+(*Secondo test per controllare che i dizionari siano immutabili*)
+(*Con il primo esempio dimostro che il tentativo di eliminare l'elemento "name"
+ direttamente in d, in cui è definito il dizionario, fallisce*)
+(*022*)
 let immutabile = 
     Let(
         "d",
@@ -721,7 +861,9 @@ let immutabile =
 ;;
 eval immutabile emptyenv;; (*Risultato: dizionario immutato*)
 
-(*In questo secondo esempio invece dimostro che la modifica di un dizionario può avvenire solamente mediante la copia modificata di esso in un altro Let*)
+(*In questo secondo esempio invece dimostro che la modifica di 
+un dizionario può avvenire solamente mediante la copia modificata di esso in un altro Let*)
+(*023*)
 let immutabile2 = 
     Let(
         "d",
@@ -747,6 +889,7 @@ let immutabile2 =
 eval immutabile2 emptyenv;; (*Risultato: dizionario vuoto*)
 
 (*ALTRI TEST SUI DIZIONARI*)
+(*024*)
 (*Test creazione dizionario con 3 elementi di tipi diversi*)
     let dict1 = 
     MyDict(
@@ -778,6 +921,7 @@ eval immutabile2 emptyenv;; (*Risultato: dizionario vuoto*)
     );;
     eval dict1 emptyenv;;
 (*Test della get sull'elemento eta*)
+(*025*)
 let eta =
 Get(
     "Eta",
@@ -785,6 +929,7 @@ Get(
 );;
 eval eta emptyenv;;
 (*Test modifica elemento esistente (eta)*)
+(*026*)
 let modif =
 SetElem(
     "Eta",
@@ -793,6 +938,7 @@ SetElem(
 );;
 eval modif emptyenv;;
 (*Test della rimozione del nome*)
+(*027*)
 let newDi =
 Remove(
     dict1,
@@ -800,6 +946,7 @@ Remove(
 );;
 eval newDi emptyenv;;
 (*Test della rimozione dell' eta*)
+(*028*)
 let newDi =
 Remove(
     dict1,
@@ -807,6 +954,7 @@ Remove(
 );;
 eval newDi emptyenv;;
 (*Creazione dizionario con 3 elementi omogenei*)
+(*029*)
     let dict2 =
     MyDict(
         Item(
@@ -830,6 +978,7 @@ eval newDi emptyenv;;
         )
     );;
 (*Creazione funzione da applicare al dizionario omogeneo (fun x -> x+1)*)
+(*030*)
 let funzione =
 Let(
     "f",
@@ -850,6 +999,7 @@ ApplyOver(
 );;
 eval ap2 emptyenv;;
 (*Applicazione funzione su tutto il dizionario (non omogeneo) con errore*)
+(*031*)
 let ap1 =
 ApplyOver(
     funzione,
@@ -857,9 +1007,11 @@ ApplyOver(
 );;
 eval ap1 emptyenv;;
 (*Test svuotamento dizionario dict1*)
+(*032*)
 let dict1 = (Clear(dict1));;
 eval dict1 emptyenv;;
 (*Test applicazione funzione su dizionario vuoto *)
+(*033*)
 let ap1 =
 ApplyOver(
     funzione,
@@ -868,6 +1020,7 @@ ApplyOver(
 eval ap1 emptyenv;;
 
 (*Test utilizzando il costrutto Let del mio interprete*)
+(*034*)
 let a =
 eval (
 Let(
@@ -877,9 +1030,29 @@ Let(
 )
 ) emptyenv;;
 
-
 (*Test applicazione funzione ricorsiva su tutto il dizionario*)
-(*Per poter effettuare questo test bisogna prima valutare corpF della linea 489*)
+(*035*)
+let corpF =
+Fun(
+    "x",
+    IfThenElse(
+        Equivalente(
+            Den "x",
+            EInt 0
+        ),
+        EInt 1,
+        Moltiplicazione(
+            Den "x",
+            Apply(
+                Den "fact",
+                Sottrazione(
+                    Den "x",
+                    EInt 1
+                )
+            )
+        )
+    )
+);;
 let fattoriale =
 Letrec(
     "fact",
@@ -890,6 +1063,59 @@ Letrec(
     )
 );;
 eval fattoriale emptyenv;;
+(* ~~~~~~~~~~~~~~~~~~~~~~~~TEST CASES PARTE FACOLTATIVA ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*)
+(*Provo ad applicare la seguente funzione:
+    let x = 1;;
+    let g z = z+x in
+    let f y = let x = y + 1 in g (x*y) in f 3;;
+*)
+(*036*)
+(*Provo ad eseguirla prima con lo scoping statico, che dovrebbe restituirmi 13:*)
+let prova = 
+    Let(
+        "x",
+        EInt 1,
+        Let(
+            "g",
+            Fun(
+                "z",
+                Addizione(
+                    Den "z",
+                    Den "x"
+                )
+            ),
+            Let(
+                "f",
+                Fun(
+                    "y",
+                    Let(
+                        "x",
+                        Addizione(
+                            Den "y",
+                            EInt 1
+                        ),
+                        Apply(
+                            Den "g",
+                            Moltiplicazione(
+                                Den "x",
+                                Den "y"
+                            )
+                        )
+                    )
+                ),
+                Apply(
+                    Den "f",
+                    EInt 3
+                )
+            )
+        )
+    )
+;;
+eval prova emptyenv;;
+(*037*)
+(*Provo ora a lanciare la stessa funzione con lo scoping dinamico, che dovrebbe restituire invece 16: *)
+let test = Rt_eval(prova);;
+eval test emptyenv;;
 
 (*
 SINTASSI CONCRETA MODIFICATA
@@ -905,8 +1131,10 @@ my_dict.get('name')
 my_dict.get('matricola')
 :- 123456
 /* operazioni (dizionari sono immutable) */
-/*Qui modifico per comodità la posizione in cui viene aggiunto l'elemento se non presente nel dizionario.
-Se è già presente, aggiorno il suo valore con quello che viene impostato*/
+/*Qui modifico per comodità la posizione in cui viene aggiunto l'elemento se non presente nel dizionario.*/
+my_dict1 = my_dict.set('età') = 23
+-: my_dict1{'name': 'Giovanni', 'matricola': 123456, 'età' : 23}
+/*Se è già presente, aggiorno il suo valore con quello che viene impostato*/
 my_dict1 = my_dict.set('età') = 22
 -: my_dict1{'name': 'Giovanni', 'matricola': 123456, 'età' : 22}
 my_dict2 = rm(my_dict1, 'name')
